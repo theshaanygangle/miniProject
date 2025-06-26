@@ -1,2 +1,3 @@
 # MindfulChat
 # miniProject
+# miniProject
