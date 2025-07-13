@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useSocket } from "@/context/SocketContext";
@@ -12,14 +12,14 @@ import axios from "axios";
 
 const DoctorDashboard = () => {
   const { authState, logout } = useAuth();
+  const { socket } = useSocket();
+  const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const navigate = useNavigate();
-  const { socket, messages } = useSocket();
   const doctor = JSON.parse(localStorage.getItem("user"));
-  const [patients, setPatients] = useState([]);
-  // Redirect if not authenticated or if not a doctor
-  useEffect(() => {
 
+  // 🔒 Redirect if not authenticated or not a doctor
+  useEffect(() => {
     if (!authState.isLoading) {
       if (!authState.isAuthenticated) {
         navigate("/auth");
@@ -27,27 +27,70 @@ const DoctorDashboard = () => {
         navigate("/patient-quiz");
       }
     }
-  }, [
-    authState.isAuthenticated,
-    authState.isLoading,
-    authState.user?.role,
-    navigate,
-  ]);
+  }, [authState.isAuthenticated, authState.isLoading, authState.user?.role, navigate]);
 
-  // Get list of unique patients who have messaged this doctor
+  // 📥 Fetch chat partners initially
+  const fetchChatPartners = async (userId) => {
+    try {
+      const response = await axios.get(
+        `${import.meta.env.VITE_BASE_URL}/chat/chat-partners/${userId}`
+      );
+      setPatients(response.data);
+    } catch (error) {
+      console.error("Error fetching chat partners:", error);
+    }
+  };
 
+  useEffect(() => {
+    if (authState.user?._id) {
+      fetchChatPartners(authState.user._id);
+    }
+  }, [authState.user]);
+
+  // ✅ Emit join to socket
+  useEffect(() => {
+    if (socket && doctor?._id) {
+      socket.emit("join", { userId: doctor._id, userType: doctor.role });
+    }
+  }, [socket, doctor]);
+
+  // ✅ Listen for incoming messages
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleReceiveMessage = (data) => {
+      console.log("Doctor received:", data);
+
+      // If new sender not in patient list, add them
+      setPatients((prev) => {
+        const exists = prev.some((p) => p._id === data.senderId);
+        if (!exists) {
+          return [...prev, { _id: data.senderId, fullname: "New Patient" }];
+        }
+        return prev;
+      });
+    };
+
+    socket.on("receive_message", handleReceiveMessage);
+
+    return () => {
+      socket.off("receive_message", handleReceiveMessage);
+    };
+  }, [socket]);
+
+  // 🔁 Handle logout
   const handleLogout = () => {
-    const response = logout();
+    logout();
     navigate("/");
   };
 
-  function handleSelectPatient(selectedPatient) {
-    setSelectedPatient(selectedPatient);
-  }
-  // Helper to render patient lists
+  // 👆 Handle selecting a patient
+  const handleSelectPatient = (selected) => {
+    setSelectedPatient(selected);
+  };
+
+  // 📋 Render patient list
   const renderPatientList = (patientList) => {
-
-
     if (patientList.length === 0) {
       return (
         <div className="text-center py-8 text-gray-500">
@@ -73,7 +116,9 @@ const DoctorDashboard = () => {
                 <User className="h-5 w-5 text-blue-600" />
               </div>
               <div className="text-left">
-                <div className="font-medium">{patient.fullname}</div>
+                <div className="font-medium">
+                  {patient.fullname || "Unnamed Patient"}
+                </div>
               </div>
             </div>
           </Button>
@@ -90,32 +135,9 @@ const DoctorDashboard = () => {
     );
   }
 
-  const fetchChatPartners = async (userId) => {
-    try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_BASE_URL}/chat/chat-partners/${userId}`
-      );
-      const chatPartners = response.data;
-
-      setPatients(chatPartners);
-      return chatPartners;
-    } catch (error) {
-      console.error("Error fetching chat partners:", error);
-      return [];
-    }
-  };
-
-  useEffect(() => {
-    const fetchedPatients = fetchChatPartners(authState.user._id);
-  }, []);
-
-  useEffect(() => {
-
-    socket.emit("join", { userId: doctor._id, userType: doctor.role });
-  }, []);
-
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
+      {/* HEADER */}
       <header className="bg-white border-b p-4 shadow-sm">
         <div className="container mx-auto flex justify-between items-center">
           <h1 className="text-xl font-semibold text-teal-600">
@@ -142,7 +164,9 @@ const DoctorDashboard = () => {
         </div>
       </header>
 
+      {/* MAIN */}
       <main className="flex-grow container mx-auto p-4 flex flex-col md:flex-row md:space-x-4">
+        {/* Patient Sidebar */}
         <div className="w-full md:w-1/3 mb-4 md:mb-0">
           <h2 className="text-lg font-medium mb-4">Patient Messages</h2>
 
@@ -153,41 +177,23 @@ const DoctorDashboard = () => {
               </TabsTrigger>
               <TabsTrigger value="urgent" className="flex-1">
                 Urgent
-                {/* {urgentPatients.length > 0 && (
-                  <span className="ml-1.5 rounded-full bg-red-100 text-red-600 px-2 text-xs">
-                    {urgentPatients.length}
-                  </span>
-                )} */}
               </TabsTrigger>
               <TabsTrigger value="new" className="flex-1">
                 New
-                {/* {newPatients.length > 0 && (
-                  <span className="ml-1.5 rounded-full bg-blue-100 text-blue-600 px-2 text-xs">
-                    {newPatients.length}
-                  </span>
-                )} */}
               </TabsTrigger>
             </TabsList>
+
             <div className="bg-white p-4 rounded-lg mt-2">
               <TabsContent value="all">
                 <ScrollArea className="h-[calc(100vh-220px)]">
                   {renderPatientList(patients)}
                 </ScrollArea>
               </TabsContent>
-              {/* <TabsContent value="urgent">
-                <ScrollArea className="h-[calc(100vh-220px)]">
-                  {renderPatientList(urgentPatients)}
-                </ScrollArea>
-              </TabsContent> */}
-              {/* <TabsContent value="new">
-                <ScrollArea className="h-[calc(100vh-220px)]">
-                  {renderPatientList(newPatients)}
-                </ScrollArea>
-              </TabsContent> */}
             </div>
           </Tabs>
         </div>
 
+        {/* Chat Area */}
         <Separator orientation="vertical" className="hidden md:block" />
 
         <div className="w-full md:w-2/3">
@@ -210,10 +216,10 @@ const DoctorDashboard = () => {
         </div>
       </main>
 
+      {/* FOOTER */}
       <footer className="bg-white border-t p-4 text-center text-gray-500 text-sm">
         <p>
-          &copy; {new Date().getFullYear()} MindfulChat Connect. All rights
-          reserved.
+          &copy; {new Date().getFullYear()} MindfulChat Connect. All rights reserved.
         </p>
       </footer>
     </div>

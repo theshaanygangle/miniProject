@@ -1,3 +1,0 @@
-# MindfulChat
-# miniProject
-# miniProject

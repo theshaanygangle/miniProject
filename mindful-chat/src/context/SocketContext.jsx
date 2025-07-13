@@ -41,7 +41,7 @@ export const SocketProvider = ({ children }) => {
     fetchDoctors();
   }, [authState.isAuthenticated, authState.user]);
 
-  const socket = io("http://127.0.0.1:4000"); // Initialize socket here
+  const socket = io("http://127.0.0.1:4001"); // Initialize socket here
 
   useEffect(() => {
     socket.on("connect", () => {
